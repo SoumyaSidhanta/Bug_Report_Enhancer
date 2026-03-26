@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSettings } from '../settings';
+import { getRequestSettings } from '../settings';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
@@ -7,7 +7,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const settings = getSettings();
+        const settings = getRequestSettings(req);
         if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
             return res.status(400).json({ error: 'Jira connection details are incomplete. Please update Settings.' });
         }

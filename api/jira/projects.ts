@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSettings } from '../settings';
+import { getRequestSettings } from '../settings';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-    if (req.method !== 'GET') {
+    if (req.method !== 'GET' && req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
     try {
-        const settings = getSettings();
+        const settings = getRequestSettings(req);
         if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
             return res.status(400).json({ error: 'Jira connection details are incomplete.' });
         }

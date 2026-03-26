@@ -98,7 +98,17 @@ export function initSettings(): void {
         projectHint.textContent = 'Fetching your Jira projects...';
 
         try {
-            const res = await fetch('/api/jira/projects');
+            const settings = {
+                jiraUrl: jiraUrl.value.trim(),
+                jiraEmail: jiraEmail.value.trim(),
+                jiraApiToken: jiraApiToken.value.trim(),
+            };
+
+            const res = await fetch('/api/jira/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings),
+            });
             const data = await res.json();
 
             if (res.ok && data.projects && data.projects.length > 0) {
@@ -168,12 +178,27 @@ export function initSettings(): void {
 
     // ===== Test Jira =====
     testJiraBtn.addEventListener('click', async () => {
+        const settings = {
+            jiraUrl: jiraUrl.value.trim(),
+            jiraEmail: jiraEmail.value.trim(),
+            jiraApiToken: jiraApiToken.value.trim(),
+        };
+
+        if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
+            showTestResult(jiraTestResult, '❌ Please fill in all Jira details first', 'error');
+            return;
+        }
+
         await saveCurrentSettings();
         showTestResult(jiraTestResult, 'Testing Jira connection...', 'loading');
         testJiraBtn.disabled = true;
 
         try {
-            const res = await fetch('/api/jira/test', { method: 'POST' });
+            const res = await fetch('/api/jira/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings),
+            });
             const data = await res.json();
 
             if (res.ok && data.success) {
@@ -192,12 +217,22 @@ export function initSettings(): void {
 
     // ===== Test Groq =====
     testGroqBtn.addEventListener('click', async () => {
+        const apiKey = groqApiKey.value.trim();
+        if (!apiKey) {
+            showTestResult(groqTestResult, '❌ Please enter Groq API key first', 'error');
+            return;
+        }
+
         await saveCurrentSettings();
         showTestResult(groqTestResult, 'Testing Groq connection...', 'loading');
         testGroqBtn.disabled = true;
 
         try {
-            const res = await fetch('/api/groq/test', { method: 'POST' });
+            const res = await fetch('/api/groq/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ groqApiKey: apiKey }),
+            });
             const data = await res.json();
 
             if (res.ok && data.success) {

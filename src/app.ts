@@ -92,6 +92,18 @@ export function initApp(): void {
         showStatus('🔍 Analyzing screenshot with Groq Llama 4 Scout...', 'info');
 
         try {
+            // Get credentials from DOM
+            const jiraUrl = (document.getElementById('jira-url') as HTMLInputElement).value.trim();
+            const jiraEmail = (document.getElementById('jira-email') as HTMLInputElement).value.trim();
+            const jiraApiToken = (document.getElementById('jira-api-token') as HTMLInputElement).value.trim();
+            const jiraProjectKey = (document.getElementById('jira-project') as HTMLSelectElement).value.trim();
+            const jiraIssueType = (document.getElementById('jira-issue-type') as HTMLInputElement).value.trim() || 'Bug';
+            const groqApiKey = (document.getElementById('groq-api-key') as HTMLInputElement).value.trim();
+
+            if (!groqApiKey) {
+                throw new Error('Groq API key is missing. Please set it in Settings.');
+            }
+
             // Step 1: Analyze screenshot
             const analyzeRes = await fetch('/api/analyze', {
                 method: 'POST',
@@ -99,6 +111,7 @@ export function initApp(): void {
                 body: JSON.stringify({
                     imageBase64: currentImageBase64,
                     additionalNotes: additionalNotes.value.trim(),
+                    groqApiKey, // Pass key for stateless Vercel
                 }),
             });
 
@@ -109,6 +122,10 @@ export function initApp(): void {
 
             showStatus('✅ Analysis complete! Creating Jira ticket...', 'info');
 
+            if (!jiraUrl || !jiraEmail || !jiraApiToken || !jiraProjectKey) {
+                throw new Error('Jira connection details are incomplete. Please update Settings.');
+            }
+
             // Step 2: Create Jira ticket
             const jiraRes = await fetch('/api/jira/create', {
                 method: 'POST',
@@ -116,6 +133,11 @@ export function initApp(): void {
                 body: JSON.stringify({
                     summary: analyzeData.summary,
                     description: analyzeData.description,
+                    jiraUrl,
+                    jiraEmail,
+                    jiraApiToken,
+                    jiraProjectKey,
+                    jiraIssueType,
                 }),
             });
 
