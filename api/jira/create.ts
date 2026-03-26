@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getRequestSettings } from '../settings';
+import { getRequestSettings } from '../_lib/settings_util';
 
 // Convert plain text to Atlassian Document Format
 function textToADF(text: string) {
