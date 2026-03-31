@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Groq from 'groq-sdk';
-import { getRequestSettings } from './_lib/settings_util';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
@@ -8,12 +7,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const settings = getRequestSettings(req);
-        if (!settings.groqApiKey) {
+        const body = req.body || {};
+        const groqApiKey = body.groqApiKey || process.env.GROQ_API_KEY || '';
+
+        if (!groqApiKey) {
             return res.status(400).json({ error: 'Groq API key is not configured. Please update Settings.' });
         }
 
-        const { imageBase64, additionalNotes } = req.body;
+        const { imageBase64, additionalNotes } = body;
         if (!imageBase64) {
             return res.status(400).json({ error: 'No image provided' });
         }
@@ -25,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             imageUrl = `data:image/png;base64,${imageBase64}`;
         }
 
-        const groq = new Groq({ apiKey: settings.groqApiKey });
+        const groq = new Groq({ apiKey: groqApiKey });
 
         const promptText = `You are an expert QA engineer. Analyze this screenshot for bugs, issues, or defects.
 Generate a structured bug report with the following sections:

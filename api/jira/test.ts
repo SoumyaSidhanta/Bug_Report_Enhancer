@@ -1,5 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getRequestSettings } from '../_lib/settings_util';
+
+function getSettings(req: VercelRequest) {
+    const body = req.body || {};
+    return {
+        jiraUrl: body.jiraUrl || process.env.JIRA_URL || '',
+        jiraEmail: body.jiraEmail || process.env.JIRA_EMAIL || '',
+        jiraApiToken: body.jiraApiToken || process.env.JIRA_API_TOKEN || '',
+    };
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
@@ -7,7 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const settings = getRequestSettings(req);
+        const settings = getSettings(req);
         if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
             return res.status(400).json({ error: 'Jira connection details are incomplete. Please update Settings.' });
         }

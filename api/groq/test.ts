@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Groq from 'groq-sdk';
-import { getRequestSettings } from '../_lib/settings_util';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
@@ -8,12 +7,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const settings = getRequestSettings(req);
-        if (!settings.groqApiKey) {
+        const body = req.body || {};
+        const groqApiKey = body.groqApiKey || process.env.GROQ_API_KEY || '';
+
+        if (!groqApiKey) {
             return res.status(400).json({ error: 'Groq API key is not configured. Please update Settings.' });
         }
 
-        const groq = new Groq({ apiKey: settings.groqApiKey });
+        const groq = new Groq({ apiKey: groqApiKey });
 
         const chatCompletion = await groq.chat.completions.create({
             model: 'meta-llama/llama-4-scout-17b-16e-instruct',
