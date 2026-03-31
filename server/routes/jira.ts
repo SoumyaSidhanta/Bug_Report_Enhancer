@@ -3,10 +3,26 @@ import { loadSettings } from '../config.js';
 
 const router = Router();
 
+/**
+ * Helper: merge body credentials with file-based settings.
+ * Body values take precedence (stateless-first design).
+ */
+function getEffectiveSettings(req: Request) {
+    const saved = loadSettings();
+    const body = req.body || {};
+    return {
+        jiraUrl: body.jiraUrl || saved.jiraUrl,
+        jiraEmail: body.jiraEmail || saved.jiraEmail,
+        jiraApiToken: body.jiraApiToken || saved.jiraApiToken,
+        jiraProjectKey: body.jiraProjectKey || saved.jiraProjectKey,
+        jiraIssueType: body.jiraIssueType || saved.jiraIssueType || 'Bug',
+    };
+}
+
 // Test Jira connection
-router.post('/test', async (_req: Request, res: Response) => {
+router.post('/test', async (req: Request, res: Response) => {
     try {
-        const settings = loadSettings();
+        const settings = getEffectiveSettings(req);
         if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
             res.status(400).json({ error: 'Jira connection details are incomplete. Please update Settings.' });
             return;
@@ -53,35 +69,22 @@ function textToADF(text: string) {
 
     for (const line of lines) {
         if (line.trim() === '') {
-            // Empty paragraph
-            content.push({
-                type: 'paragraph',
-                content: [],
-            });
+            content.push({ type: 'paragraph', content: [] });
         } else {
             content.push({
                 type: 'paragraph',
-                content: [
-                    {
-                        type: 'text',
-                        text: line,
-                    },
-                ],
+                content: [{ type: 'text', text: line }],
             });
         }
     }
 
-    return {
-        type: 'doc',
-        version: 1,
-        content,
-    };
+    return { type: 'doc', version: 1, content };
 }
 
 // Fetch Jira projects
-router.get('/projects', async (_req: Request, res: Response) => {
+router.post('/projects', async (req: Request, res: Response) => {
     try {
-        const settings = loadSettings();
+        const settings = getEffectiveSettings(req);
         if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
             res.status(400).json({ error: 'Jira connection details are incomplete.' });
             return;
@@ -122,7 +125,7 @@ router.get('/projects', async (_req: Request, res: Response) => {
 // Create Jira issue
 router.post('/create', async (req: Request, res: Response) => {
     try {
-        const settings = loadSettings();
+        const settings = getEffectiveSettings(req);
         if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
             res.status(400).json({ error: 'Jira connection details are incomplete. Please update Settings.' });
             return;
@@ -137,8 +140,7 @@ router.post('/create', async (req: Request, res: Response) => {
         const auth = Buffer.from(`${settings.jiraEmail}:${settings.jiraApiToken}`).toString('base64');
         const baseUrl = settings.jiraUrl.replace(/\/$/, '');
 
-        // Try API v3 first (supports ADF, required by next-gen projects)
-        // then fallback to API v2 (plain text description)
+        // Try API v3 first (supports ADF), then fallback to API v2 (plain text)
         const attempts = [
             {
                 label: 'API v3 (ADF)',
@@ -170,8 +172,6 @@ router.post('/create', async (req: Request, res: Response) => {
 
         for (const attempt of attempts) {
             console.log(`[Jira] Trying ${attempt.label} at ${attempt.url}`);
-            console.log(`[Jira] Project: ${settings.jiraProjectKey}, Issue Type: ${settings.jiraIssueType}`);
-            console.log(`[Jira] Summary: "${summary.substring(0, 80)}..."`);
 
             const response = await fetch(attempt.url, {
                 method: 'POST',

@@ -1,33 +1,20 @@
-import type { VercelRequest } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// In-memory settings for the current function instance
-let memorySettings: Record<string, string> = {};
-
-export function getSettings() {
-    return {
-        jiraUrl: process.env.JIRA_URL || memorySettings.jiraUrl || '',
-        jiraEmail: process.env.JIRA_EMAIL || memorySettings.jiraEmail || '',
-        jiraApiToken: process.env.JIRA_API_TOKEN || memorySettings.jiraApiToken || '',
-        jiraProjectKey: process.env.JIRA_PROJECT_KEY || memorySettings.jiraProjectKey || '',
-        jiraIssueType: process.env.JIRA_ISSUE_TYPE || memorySettings.jiraIssueType || 'Bug',
-        groqApiKey: process.env.GROQ_API_KEY || memorySettings.groqApiKey || '',
-    };
-}
-
+/**
+ * Extract settings from the request body.
+ * This is a purely stateless approach — credentials are always
+ * sent from the frontend in the request body.
+ * Falls back to environment variables if body values are missing.
+ */
 export function getRequestSettings(req: VercelRequest) {
     const body = req.body || {};
-    const settings = getSettings();
 
     return {
-        jiraUrl: body.jiraUrl || settings.jiraUrl,
-        jiraEmail: body.jiraEmail || settings.jiraEmail,
-        jiraApiToken: body.jiraApiToken || settings.jiraApiToken,
-        jiraProjectKey: body.jiraProjectKey || settings.jiraProjectKey,
-        jiraIssueType: body.jiraIssueType || settings.jiraIssueType,
-        groqApiKey: body.groqApiKey || settings.groqApiKey,
+        jiraUrl: body.jiraUrl || process.env.JIRA_URL || '',
+        jiraEmail: body.jiraEmail || process.env.JIRA_EMAIL || '',
+        jiraApiToken: body.jiraApiToken || process.env.JIRA_API_TOKEN || '',
+        jiraProjectKey: body.jiraProjectKey || process.env.JIRA_PROJECT_KEY || '',
+        jiraIssueType: body.jiraIssueType || process.env.JIRA_ISSUE_TYPE || 'Bug',
+        groqApiKey: body.groqApiKey || process.env.GROQ_API_KEY || '',
     };
-}
-
-export function setSettings(settings: Record<string, string>) {
-    memorySettings = { ...memorySettings, ...settings };
 }

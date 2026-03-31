@@ -1,4 +1,30 @@
+import { loadSettingsFromStorage } from './settings';
+
 let currentImageBase64: string | null = null;
+
+// ===== Safe JSON Response Parser =====
+async function safeJsonParse(res: Response): Promise<{ ok: boolean; status: number; data: any }> {
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        return {
+            ok: false,
+            status: res.status,
+            data: { error: text || `Server returned status ${res.status}` },
+        };
+    }
+
+    try {
+        const data = await res.json();
+        return { ok: res.ok, status: res.status, data };
+    } catch {
+        return {
+            ok: false,
+            status: res.status,
+            data: { error: 'Server returned an invalid response. Please try again.' },
+        };
+    }
+}
 
 export function initApp(): void {
     const dropZone = document.getElementById('drop-zone') as HTMLDivElement;
@@ -92,65 +118,60 @@ export function initApp(): void {
         showStatus('🔍 Analyzing screenshot with Groq Llama 4 Scout...', 'info');
 
         try {
-            // Get credentials from DOM
-            const jiraUrl = (document.getElementById('jira-url') as HTMLInputElement).value.trim();
-            const jiraEmail = (document.getElementById('jira-email') as HTMLInputElement).value.trim();
-            const jiraApiToken = (document.getElementById('jira-api-token') as HTMLInputElement).value.trim();
-            const jiraProjectKey = (document.getElementById('jira-project') as HTMLSelectElement).value.trim();
-            const jiraIssueType = (document.getElementById('jira-issue-type') as HTMLInputElement).value.trim() || 'Bug';
-            const groqApiKey = (document.getElementById('groq-api-key') as HTMLInputElement).value.trim();
+            // Get credentials from localStorage (the source of truth)
+            const settings = loadSettingsFromStorage();
 
-            if (!groqApiKey) {
+            if (!settings.groqApiKey) {
                 throw new Error('Groq API key is missing. Please set it in Settings.');
             }
 
-            // Step 1: Analyze screenshot
+            // Step 1: Analyze screenshot — pass groqApiKey in the body
             const analyzeRes = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     imageBase64: currentImageBase64,
                     additionalNotes: additionalNotes.value.trim(),
-                    groqApiKey, // Pass key for stateless Vercel
+                    groqApiKey: settings.groqApiKey,
                 }),
             });
 
-            const analyzeData = await analyzeRes.json();
-            if (!analyzeRes.ok) {
-                throw new Error(analyzeData.error || 'Analysis failed');
+            const analyzeResult = await safeJsonParse(analyzeRes);
+            if (!analyzeResult.ok) {
+                throw new Error(analyzeResult.data.error || 'Analysis failed');
             }
 
             showStatus('✅ Analysis complete! Creating Jira ticket...', 'info');
 
-            if (!jiraUrl || !jiraEmail || !jiraApiToken || !jiraProjectKey) {
+            if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken || !settings.jiraProjectKey) {
                 throw new Error('Jira connection details are incomplete. Please update Settings.');
             }
 
-            // Step 2: Create Jira ticket
+            // Step 2: Create Jira ticket — pass all credentials in the body
             const jiraRes = await fetch('/api/jira/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    summary: analyzeData.summary,
-                    description: analyzeData.description,
-                    jiraUrl,
-                    jiraEmail,
-                    jiraApiToken,
-                    jiraProjectKey,
-                    jiraIssueType,
+                    summary: analyzeResult.data.summary,
+                    description: analyzeResult.data.description,
+                    jiraUrl: settings.jiraUrl,
+                    jiraEmail: settings.jiraEmail,
+                    jiraApiToken: settings.jiraApiToken,
+                    jiraProjectKey: settings.jiraProjectKey,
+                    jiraIssueType: settings.jiraIssueType,
                 }),
             });
 
-            const jiraData = await jiraRes.json();
-            if (!jiraRes.ok) {
-                throw new Error(jiraData.error || 'Jira ticket creation failed');
+            const jiraResult = await safeJsonParse(jiraRes);
+            if (!jiraResult.ok) {
+                throw new Error(jiraResult.data.error || 'Jira ticket creation failed');
             }
 
             showStatus(
-                `🎉 Jira ticket <a href="${jiraData.url}" target="_blank" rel="noopener">${jiraData.key}</a> created successfully!`,
+                `🎉 Jira ticket <a href="${jiraResult.data.url}" target="_blank" rel="noopener">${jiraResult.data.key}</a> created successfully!`,
                 'success'
             );
-            showToast(`Jira ticket ${jiraData.key} created!`, 'success');
+            showToast(`Jira ticket ${jiraResult.data.key} created!`, 'success');
 
         } catch (err: any) {
             showStatus(`❌ Error: ${err.message}`, 'error');

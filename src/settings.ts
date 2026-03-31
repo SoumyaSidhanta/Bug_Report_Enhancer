@@ -14,6 +14,60 @@ interface JiraProject {
     name: string;
 }
 
+const SETTINGS_STORAGE_KEY = 'bug-report-enhancer-settings';
+
+// ===== localStorage-based Settings =====
+export function loadSettingsFromStorage(): Settings {
+    try {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (raw) {
+            return JSON.parse(raw);
+        }
+    } catch {
+        // Corrupted storage, ignore
+    }
+    return {
+        jiraUrl: '',
+        jiraEmail: '',
+        jiraApiToken: '',
+        jiraProjectKey: '',
+        jiraIssueType: 'Bug',
+        groqApiKey: '',
+    };
+}
+
+function saveSettingsToStorage(settings: Settings): void {
+    try {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch {
+        // Storage full or blocked, ignore
+    }
+}
+
+// ===== Safe JSON Response Parser =====
+async function safeJsonParse(res: Response): Promise<{ ok: boolean; status: number; data: any }> {
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        return {
+            ok: false,
+            status: res.status,
+            data: { error: text || `Server returned status ${res.status}` },
+        };
+    }
+
+    try {
+        const data = await res.json();
+        return { ok: res.ok, status: res.status, data };
+    } catch {
+        return {
+            ok: false,
+            status: res.status,
+            data: { error: 'Server returned an invalid response. Please try again.' },
+        };
+    }
+}
+
 export function initSettings(): void {
     const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
     const modal = document.getElementById('settings-modal') as HTMLDivElement;
@@ -37,9 +91,9 @@ export function initSettings(): void {
     const projectHint = document.getElementById('project-hint') as HTMLSpanElement;
 
     // ===== Open / Close =====
-    settingsBtn.addEventListener('click', async () => {
+    settingsBtn.addEventListener('click', () => {
         modal.style.display = 'flex';
-        await loadSettings();
+        loadSettingsIntoForm();
     });
 
     modalCloseBtn.addEventListener('click', () => {
@@ -61,34 +115,40 @@ export function initSettings(): void {
         }
     });
 
-    // ===== Load Settings =====
-    async function loadSettings(): Promise<void> {
-        try {
-            const res = await fetch('/api/settings');
-            if (res.ok) {
-                const data: Settings = await res.json();
-                jiraUrl.value = data.jiraUrl || '';
-                jiraEmail.value = data.jiraEmail || '';
-                jiraApiToken.value = data.jiraApiToken || '';
-                jiraIssueType.value = data.jiraIssueType || 'Bug';
-                groqApiKey.value = data.groqApiKey || '';
+    // ===== Load Settings from localStorage into form =====
+    function loadSettingsIntoForm(): void {
+        const settings = loadSettingsFromStorage();
+        jiraUrl.value = settings.jiraUrl || '';
+        jiraEmail.value = settings.jiraEmail || '';
+        jiraApiToken.value = settings.jiraApiToken || '';
+        jiraIssueType.value = settings.jiraIssueType || 'Bug';
+        groqApiKey.value = settings.groqApiKey || '';
 
-                // If we already have credentials + a saved project key, load projects automatically  
-                if (data.jiraUrl && data.jiraEmail && data.jiraApiToken) {
-                    await fetchProjects(data.jiraProjectKey);
-                } else if (data.jiraProjectKey) {
-                    // Just show the saved key as a fallback option
-                    populateProjectSelect([{ key: data.jiraProjectKey, name: data.jiraProjectKey }], data.jiraProjectKey);
-                }
-            }
-        } catch {
-            // Settings file may not exist yet
+        // If we already have credentials + a saved project key, load projects automatically  
+        if (settings.jiraUrl && settings.jiraEmail && settings.jiraApiToken) {
+            fetchProjects(settings.jiraProjectKey);
+        } else if (settings.jiraProjectKey) {
+            // Just show the saved key as a fallback option
+            populateProjectSelect([{ key: settings.jiraProjectKey, name: settings.jiraProjectKey }], settings.jiraProjectKey);
         }
+    }
+
+    // ===== Get current form values as a settings object =====
+    function getCurrentFormSettings(): Settings {
+        return {
+            jiraUrl: jiraUrl.value.trim(),
+            jiraEmail: jiraEmail.value.trim(),
+            jiraApiToken: jiraApiToken.value.trim(),
+            jiraProjectKey: jiraProjectSelect.value.trim(),
+            jiraIssueType: jiraIssueType.value.trim() || 'Bug',
+            groqApiKey: groqApiKey.value.trim(),
+        };
     }
 
     // ===== Load Projects Button =====
     loadProjectsBtn.addEventListener('click', async () => {
-        await saveCurrentSettings();
+        // Auto-save to localStorage before fetching
+        saveSettingsToStorage(getCurrentFormSettings());
         await fetchProjects();
     });
 
@@ -98,27 +158,33 @@ export function initSettings(): void {
         projectHint.textContent = 'Fetching your Jira projects...';
 
         try {
-            const settings = {
-                jiraUrl: jiraUrl.value.trim(),
-                jiraEmail: jiraEmail.value.trim(),
-                jiraApiToken: jiraApiToken.value.trim(),
-            };
+            const settings = getCurrentFormSettings();
+
+            if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
+                projectHint.textContent = '❌ Please fill in Jira URL, Email, and API Token first.';
+                return;
+            }
 
             const res = await fetch('/api/jira/projects', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings),
+                body: JSON.stringify({
+                    jiraUrl: settings.jiraUrl,
+                    jiraEmail: settings.jiraEmail,
+                    jiraApiToken: settings.jiraApiToken,
+                }),
             });
-            const data = await res.json();
 
-            if (res.ok && data.projects && data.projects.length > 0) {
+            const { ok, data } = await safeJsonParse(res);
+
+            if (ok && data.projects && data.projects.length > 0) {
                 populateProjectSelect(data.projects, savedKey);
                 projectHint.textContent = `✅ ${data.projects.length} project(s) loaded. Select yours above.`;
             } else {
                 projectHint.textContent = `❌ ${data.error || 'No projects found. Check Jira credentials.'}`;
             }
         } catch (err: any) {
-            projectHint.textContent = `❌ Failed to load projects: ${err.message}`;
+            projectHint.textContent = `❌ Network error: ${err.message}`;
         } finally {
             loadProjectsBtn.disabled = false;
             loadProjectsBtn.textContent = 'Load Projects';
@@ -143,53 +209,30 @@ export function initSettings(): void {
         }
     }
 
-    // ===== Save Settings =====
-    saveBtn.addEventListener('click', async () => {
-        const settings: Settings = {
-            jiraUrl: jiraUrl.value.trim(),
-            jiraEmail: jiraEmail.value.trim(),
-            jiraApiToken: jiraApiToken.value.trim(),
-            jiraProjectKey: jiraProjectSelect.value.trim(),
-            jiraIssueType: jiraIssueType.value.trim() || 'Bug',
-            groqApiKey: groqApiKey.value.trim(),
-        };
+    // ===== Save Settings (to localStorage only) =====
+    saveBtn.addEventListener('click', () => {
+        const settings = getCurrentFormSettings();
 
         if (!settings.jiraProjectKey) {
             showToast('Please select a Jira project first', 'error');
             return;
         }
 
-        try {
-            const res = await fetch('/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings),
-            });
-
-            if (res.ok) {
-                showToast('Settings saved successfully!', 'success');
-            } else {
-                throw new Error('Failed to save');
-            }
-        } catch {
-            showToast('Failed to save settings', 'error');
-        }
+        saveSettingsToStorage(settings);
+        showToast('Settings saved successfully!', 'success');
     });
 
     // ===== Test Jira =====
     testJiraBtn.addEventListener('click', async () => {
-        const settings = {
-            jiraUrl: jiraUrl.value.trim(),
-            jiraEmail: jiraEmail.value.trim(),
-            jiraApiToken: jiraApiToken.value.trim(),
-        };
+        const settings = getCurrentFormSettings();
 
         if (!settings.jiraUrl || !settings.jiraEmail || !settings.jiraApiToken) {
             showTestResult(jiraTestResult, '❌ Please fill in all Jira details first', 'error');
             return;
         }
 
-        await saveCurrentSettings();
+        // Auto-save to localStorage
+        saveSettingsToStorage(settings);
         showTestResult(jiraTestResult, 'Testing Jira connection...', 'loading');
         testJiraBtn.disabled = true;
 
@@ -197,11 +240,16 @@ export function initSettings(): void {
             const res = await fetch('/api/jira/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings),
+                body: JSON.stringify({
+                    jiraUrl: settings.jiraUrl,
+                    jiraEmail: settings.jiraEmail,
+                    jiraApiToken: settings.jiraApiToken,
+                }),
             });
-            const data = await res.json();
 
-            if (res.ok && data.success) {
+            const { ok, data } = await safeJsonParse(res);
+
+            if (ok && data.success) {
                 showTestResult(jiraTestResult, `✅ ${data.message}`, 'success');
                 // Auto-load projects after successful test
                 await fetchProjects();
@@ -209,7 +257,7 @@ export function initSettings(): void {
                 showTestResult(jiraTestResult, `❌ ${data.error || 'Connection failed'}`, 'error');
             }
         } catch (err: any) {
-            showTestResult(jiraTestResult, `❌ ${err.message || 'Connection failed'}`, 'error');
+            showTestResult(jiraTestResult, `❌ Network error: ${err.message || 'Connection failed'}`, 'error');
         } finally {
             testJiraBtn.disabled = false;
         }
@@ -223,7 +271,8 @@ export function initSettings(): void {
             return;
         }
 
-        await saveCurrentSettings();
+        // Auto-save to localStorage
+        saveSettingsToStorage(getCurrentFormSettings());
         showTestResult(groqTestResult, 'Testing Groq connection...', 'loading');
         testGroqBtn.disabled = true;
 
@@ -233,42 +282,22 @@ export function initSettings(): void {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ groqApiKey: apiKey }),
             });
-            const data = await res.json();
 
-            if (res.ok && data.success) {
+            const { ok, data } = await safeJsonParse(res);
+
+            if (ok && data.success) {
                 showTestResult(groqTestResult, `✅ ${data.message}`, 'success');
             } else {
                 showTestResult(groqTestResult, `❌ ${data.error || 'Connection failed'}`, 'error');
             }
         } catch (err: any) {
-            showTestResult(groqTestResult, `❌ ${err.message || 'Connection failed'}`, 'error');
+            showTestResult(groqTestResult, `❌ Network error: ${err.message || 'Connection failed'}`, 'error');
         } finally {
             testGroqBtn.disabled = false;
         }
     });
 
     // ===== Helpers =====
-    async function saveCurrentSettings(): Promise<void> {
-        const settings: Settings = {
-            jiraUrl: jiraUrl.value.trim(),
-            jiraEmail: jiraEmail.value.trim(),
-            jiraApiToken: jiraApiToken.value.trim(),
-            jiraProjectKey: jiraProjectSelect.value.trim(),
-            jiraIssueType: jiraIssueType.value.trim() || 'Bug',
-            groqApiKey: groqApiKey.value.trim(),
-        };
-
-        try {
-            await fetch('/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings),
-            });
-        } catch {
-            // Silently fail
-        }
-    }
-
     function showTestResult(el: HTMLDivElement, message: string, type: 'success' | 'error' | 'loading'): void {
         el.textContent = message;
         el.className = `test-result visible ${type}`;

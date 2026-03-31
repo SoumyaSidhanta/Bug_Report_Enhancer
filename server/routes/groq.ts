@@ -4,15 +4,17 @@ import { loadSettings } from '../config.js';
 
 const router = Router();
 
-router.post('/test', async (_req: Request, res: Response) => {
+router.post('/test', async (req: Request, res: Response) => {
     try {
-        const settings = loadSettings();
-        if (!settings.groqApiKey) {
+        const saved = loadSettings();
+        const groqApiKey = req.body.groqApiKey || saved.groqApiKey;
+
+        if (!groqApiKey) {
             res.status(400).json({ error: 'Groq API key is not configured. Please update Settings.' });
             return;
         }
 
-        const groq = new Groq({ apiKey: settings.groqApiKey });
+        const groq = new Groq({ apiKey: groqApiKey });
 
         const chatCompletion = await groq.chat.completions.create({
             model: 'meta-llama/llama-4-scout-17b-16e-instruct',

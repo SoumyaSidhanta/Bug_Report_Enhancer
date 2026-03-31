@@ -6,8 +6,10 @@ const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
     try {
-        const settings = loadSettings();
-        if (!settings.groqApiKey) {
+        const saved = loadSettings();
+        const groqApiKey = req.body.groqApiKey || saved.groqApiKey;
+
+        if (!groqApiKey) {
             res.status(400).json({ error: 'Groq API key is not configured. Please update Settings.' });
             return;
         }
@@ -30,7 +32,7 @@ router.post('/', async (req: Request, res: Response) => {
         console.log(`[Analyze] MIME type: ${imageUrl.substring(0, imageUrl.indexOf(';'))}`);
         console.log(`[Analyze] Additional notes: "${additionalNotes || 'none'}"`);
 
-        const groq = new Groq({ apiKey: settings.groqApiKey });
+        const groq = new Groq({ apiKey: groqApiKey });
 
         const promptText = `You are an expert QA engineer. Analyze this screenshot for bugs, issues, or defects.
 Generate a structured bug report with the following sections:
@@ -45,24 +47,14 @@ ${additionalNotes ? `Additional context from the reporter: "${additionalNotes}"`
 
 Format the output as plain text suitable for a Jira ticket description.`;
 
-        // Following exact Groq docs format: text first, then image_url
-        // Using max_completion_tokens as per Groq docs
         const chatCompletion = await groq.chat.completions.create({
             model: 'meta-llama/llama-4-scout-17b-16e-instruct',
             messages: [
                 {
                     role: 'user',
                     content: [
-                        {
-                            type: 'text',
-                            text: promptText,
-                        },
-                        {
-                            type: 'image_url',
-                            image_url: {
-                                url: imageUrl,
-                            },
-                        },
+                        { type: 'text', text: promptText },
+                        { type: 'image_url', image_url: { url: imageUrl } },
                     ],
                 },
             ],
