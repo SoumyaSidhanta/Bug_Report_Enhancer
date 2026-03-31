@@ -18,7 +18,7 @@ const defaultSettings: Settings = {
     jiraUrl: '',
     jiraEmail: '',
     jiraApiToken: '',
-    jiraProjectKey: 'VWO',
+    jiraProjectKey: 'SCRUM',
     jiraIssueType: 'Bug',
     groqApiKey: '',
 };
